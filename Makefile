@@ -24,7 +24,8 @@ ifeq (${BOARD}, qmtech)
 PART = xc7k325tffg676-1
 else ifeq (${BOARD}, genesys2)
 PART = xc7k325tffg900-2
-PROG = openFPGALoader --cable digilent --bitstream blinky.bit --ftdi-channel 1
+PROG = openFPGALoader --cable digilent_b --bitstream ${PROJECT_NAME}.bit
+FLASH = openFPGALoader --board genesys2 -f ${PROJECT_NAME}.bit
 else
 .PHONY: check
 check:
@@ -49,6 +50,9 @@ ${PROJECT_NAME}.frames: ${PROJECT_NAME}.fasm
 
 ${PROJECT_NAME}.bit: ${PROJECT_NAME}.frames
 	${XRAY_DIR}/bin/xc7frames2bit --part_file ${DB_DIR}/kintex7/${PART}/part.yaml --part_name ${PART} --frm_file $< --output_file $@
+
+flash: ${PROJECT_NAME}.bit
+	${FLASH}
 
 .PHONY: setup
 setup:

@@ -13,7 +13,7 @@ NEXTPNR_CMAKE_FLAGS = -DBUILD_GUI=0
 endif
 
 ifeq (${PROJECT_NAME}, picosoc)
-SOURCE = ${BOARD}.v picosoc_noflash.v picorv32.v progmem.v simpleuart.v
+SOURCE = ${BOARD}.v picosoc.v picorv32.v progmem.v simpleuart.v spimemio.v
 TOP = top
 else
 SOURCE = ${PROJECT_NAME}.v

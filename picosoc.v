@@ -1,13 +1,7 @@
 /*
  *  PicoSoC - A simple example SoC using PicoRV32
  *
- *  This is a modified PicoSoC example which has removed the requirement
- *  for an external SPI flash. The PicoRV32 program is stored in ROM implemented
- *  as a number of case statements. The ROM file is generated using an external
- *  script.
- *
- *
- *  Copyright (C) 2017  Clifford Wolf <clifford@clifford.at>
+ *  Copyright (C) 2017  Claire Xenia Wolf <claire@yosyshq.com>
  *
  *  Permission to use, copy, modify, and/or distribute this software for any
  *  purpose with or without fee is hereby granted, provided that the above
@@ -31,7 +25,15 @@
 `define PICORV32_REGS picosoc_regs
 `endif
 
-module picosoc_noflash (
+`ifndef PICOSOC_MEM
+`define PICOSOC_MEM picosoc_mem
+`endif
+
+// this macro can be used to check if the verilog files in your
+// design are read in the correct order.
+`define PICOSOC_V
+
+module picosoc (
 	input clk,
 	input resetn,
 
@@ -47,11 +49,38 @@ module picosoc_noflash (
 	input  irq_7,
 
 	output ser_tx,
-	input  ser_rx
+	input  ser_rx,
+
+	output flash_csb,
+	output flash_clk,
+
+	output flash_io0_oe,
+	output flash_io1_oe,
+	output flash_io2_oe,
+	output flash_io3_oe,
+
+	output flash_io0_do,
+	output flash_io1_do,
+	output flash_io2_do,
+	output flash_io3_do,
+
+	input  flash_io0_di,
+	input  flash_io1_di,
+	input  flash_io2_di,
+	input  flash_io3_di
 );
+	parameter [0:0] BARREL_SHIFTER = 1;
+	parameter [0:0] ENABLE_MUL = 1;
+	parameter [0:0] ENABLE_DIV = 1;
+	parameter [0:0] ENABLE_FAST_MUL = 0;
+	parameter [0:0] ENABLE_COMPRESSED = 1;
+	parameter [0:0] ENABLE_COUNTERS = 1;
+	parameter [0:0] ENABLE_IRQ_QREGS = 0;
+
 	parameter integer MEM_WORDS = 256;
 	parameter [31:0] STACKADDR = (4*MEM_WORDS);       // end of memory
 	parameter [31:0] PROGADDR_RESET = 32'h 0010_0000; // 1 MB into flash
+	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0000;
 
 	reg [31:0] irq;
 	wire irq_stall = 0;
@@ -74,8 +103,8 @@ module picosoc_noflash (
 	wire [3:0] mem_wstrb;
 	wire [31:0] mem_rdata;
 
-	wire progmem_ready;
-	wire [31:0] progmem_rdata;
+	wire spimem_ready;
+	wire [31:0] spimem_rdata;
 
 	reg ram_ready;
 	wire [31:0] ram_rdata;
@@ -85,7 +114,8 @@ module picosoc_noflash (
 	assign iomem_addr = mem_addr;
 	assign iomem_wdata = mem_wdata;
 
-	wire        spimemio_cfgreg_sel    = mem_valid && (mem_addr == 32'h 0200_0000);
+	wire spimemio_cfgreg_sel = mem_valid && (mem_addr == 32'h 0200_0000);
+	wire [31:0] spimemio_cfgreg_do;
 
 	wire        simpleuart_reg_div_sel = mem_valid && (mem_addr == 32'h 0200_0004);
 	wire [31:0] simpleuart_reg_div_do;
@@ -94,39 +124,25 @@ module picosoc_noflash (
 	wire [31:0] simpleuart_reg_dat_do;
 	wire        simpleuart_reg_dat_wait;
 
-	assign mem_ready =
-            (iomem_valid && iomem_ready) || progmem_ready || ram_ready || spimemio_cfgreg_sel ||
+	assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || spimemio_cfgreg_sel ||
 			simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
 
-	assign mem_rdata =
-            (iomem_valid && iomem_ready) ? iomem_rdata :
-            progmem_ready ? progmem_rdata :
-            ram_ready ? ram_rdata :
-            spimemio_cfgreg_sel ? 32'h0000_0000 : // Mockup, will always read 0
-			simpleuart_reg_div_sel ? simpleuart_reg_div_do :
+	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata : spimem_ready ? spimem_rdata : ram_ready ? ram_rdata :
+			spimemio_cfgreg_sel ? spimemio_cfgreg_do : simpleuart_reg_div_sel ? simpleuart_reg_div_do :
 			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h 0000_0000;
-
-`ifdef SIMULATION
-	wire        trace_valid;
-	wire [35:0] trace_data;
-    integer     trace_file;
-`endif
 
 	picorv32 #(
 		.STACKADDR(STACKADDR),
 		.PROGADDR_RESET(PROGADDR_RESET),
-		.PROGADDR_IRQ(32'h 0000_0000),
-		.BARREL_SHIFTER(1),
-		.COMPRESSED_ISA(1),
-		.ENABLE_MUL(1),
-		.ENABLE_DIV(1),
+		.PROGADDR_IRQ(PROGADDR_IRQ),
+		.BARREL_SHIFTER(BARREL_SHIFTER),
+		.COMPRESSED_ISA(ENABLE_COMPRESSED),
+		.ENABLE_COUNTERS(ENABLE_COUNTERS),
+		.ENABLE_MUL(ENABLE_MUL),
+		.ENABLE_DIV(ENABLE_DIV),
+		.ENABLE_FAST_MUL(ENABLE_FAST_MUL),
 		.ENABLE_IRQ(1),
-`ifdef SIMULATION
-		.ENABLE_IRQ_QREGS(0),
-        .ENABLE_TRACE(1)
-`else
-		.ENABLE_IRQ_QREGS(0)
-`endif
+		.ENABLE_IRQ_QREGS(ENABLE_IRQ_QREGS)
 	) cpu (
 		.clk         (clk        ),
 		.resetn      (resetn     ),
@@ -137,25 +153,39 @@ module picosoc_noflash (
 		.mem_wdata   (mem_wdata  ),
 		.mem_wstrb   (mem_wstrb  ),
 		.mem_rdata   (mem_rdata  ),
-`ifdef SIMULATION
-		.irq         (irq        ),
-		.trace_valid (trace_valid),
-		.trace_data  (trace_data )
-`else
 		.irq         (irq        )
-`endif
 	);
 
-    // This it the program ROM memory for the PicoRV32
-    progmem progmem (
-        .clk    (clk),
-        .rstn   (resetn),
+	spimemio spimemio (
+		.clk    (clk),
+		.resetn (resetn),
+		.valid  (mem_valid && mem_addr >= 4*MEM_WORDS && mem_addr < 32'h 0200_0000),
+		.ready  (spimem_ready),
+		.addr   (mem_addr[23:0]),
+		.rdata  (spimem_rdata),
 
-        .valid  (mem_valid && mem_addr >= 4*MEM_WORDS && mem_addr < 32'h 0200_0000),
-        .ready  (progmem_ready),
-        .addr   (mem_addr),
-        .rdata  (progmem_rdata)
-    );
+		.flash_csb    (flash_csb   ),
+		.flash_clk    (flash_clk   ),
+
+		.flash_io0_oe (flash_io0_oe),
+		.flash_io1_oe (flash_io1_oe),
+		.flash_io2_oe (flash_io2_oe),
+		.flash_io3_oe (flash_io3_oe),
+
+		.flash_io0_do (flash_io0_do),
+		.flash_io1_do (flash_io1_do),
+		.flash_io2_do (flash_io2_do),
+		.flash_io3_do (flash_io3_do),
+
+		.flash_io0_di (flash_io0_di),
+		.flash_io1_di (flash_io1_di),
+		.flash_io2_di (flash_io2_di),
+		.flash_io3_di (flash_io3_di),
+
+		.cfgreg_we(spimemio_cfgreg_sel ? mem_wstrb : 4'b 0000),
+		.cfgreg_di(mem_wdata),
+		.cfgreg_do(spimemio_cfgreg_do)
+	);
 
 	simpleuart simpleuart (
 		.clk         (clk         ),
@@ -178,41 +208,15 @@ module picosoc_noflash (
 	always @(posedge clk)
 		ram_ready <= mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS;
 
-	picosoc_mem #(.WORDS(MEM_WORDS)) memory (
+	`PICOSOC_MEM #(
+		.WORDS(MEM_WORDS)
+	) memory (
 		.clk(clk),
 		.wen((mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS) ? mem_wstrb : 4'b0),
 		.addr(mem_addr[23:2]),
 		.wdata(mem_wdata),
 		.rdata(ram_rdata)
 	);
-
-    // Simulation debug
-`ifdef SIMULATION
-    always @(posedge clk)
-        if (resetn) begin
-            if ( mem_instr && mem_valid && mem_ready)
-                $display("Inst rd: [0x%08X] = 0x%08X", mem_addr, mem_rdata);
-            if (!mem_instr && mem_valid && mem_ready)
-                $display("Data rd: [0x%08X] = 0x%08X", mem_addr, mem_rdata);
-        end
-
-    // Trace
-    initial begin
-
-        trace_file = $fopen("testbench.trace", "w");
-        repeat (10) @(posedge clk);
-
-        while(1) begin
-            @(posedge clk)
-            if (resetn && trace_valid)
-                $fwrite(trace_file, "%x\n", trace_data);
-                $fflush(trace_file);
-                //$display("Trace  : %09X", trace_data);
-        end
-    end
-
-`endif // SIMULATION
-
 endmodule
 
 // Implementation note:
@@ -227,7 +231,7 @@ module picosoc_regs (
 	output [31:0] rdata1,
 	output [31:0] rdata2
 );
-	(* ram_style = "distributed" *) reg [31:0] regs [0:31];
+	reg [31:0] regs [0:31];
 
 	always @(posedge clk)
 		if (wen) regs[waddr[4:0]] <= wdata;
@@ -245,7 +249,7 @@ module picosoc_mem #(
 	input [31:0] wdata,
 	output reg [31:0] rdata
 );
-	(* ram_style = "distributed" *) reg [31:0] mem [0:WORDS-1];
+	reg [31:0] mem [0:WORDS-1];
 
 	always @(posedge clk) begin
 		rdata <= mem[addr];
@@ -255,3 +259,4 @@ module picosoc_mem #(
 		if (wen[3]) mem[addr][31:24] <= wdata[31:24];
 	end
 endmodule
+

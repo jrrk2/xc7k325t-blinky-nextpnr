@@ -27,7 +27,6 @@ module top (
     output [1:0] led,
 
     output flash_csb,
-    output flash_clk,
     inout  flash_io0,
     inout  flash_io1,
     inout  flash_io2,
@@ -36,10 +35,15 @@ module top (
 );
 
   wire clk_bufg;
+  wire flash_clk;
+
   BUFG bufg (
       .I(clk),
       .O(clk_bufg)
   );
+
+  STARTUPE2 startup(.USRCCLKO(flash_clk), .GSR(1'b0), .GTS(1'b0), .KEYCLEARB(1'b1),
+  	     .PACK(1'b0), .USRCCLKTS(1'b0), .USRDONEO(1'b0), .USRDONETS(1'b0));
 
   reg [5:0] reset_cnt = 0;
   wire resetn = &reset_cnt;
